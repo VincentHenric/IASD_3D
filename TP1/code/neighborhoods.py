@@ -123,9 +123,9 @@ if __name__ == '__main__':
     # *************************
     #
     
-    flag_brute_force = False
+    flag_brute_force = True
     flag_leaf_size = False
-    flag_radius = True
+    flag_radius = False
 
     # If statement to skip this part if you want
     if flag_brute_force:

@@ -66,7 +66,7 @@ def grid_subsampling(points, voxel_size):
     #
 
     # YOUR CODE
-    # we take voxels starting from the point (0,0,0) (data is centered or reasonably centered)
+    # we take voxels starting from the point (0,0,0)
     voxel_indices = np.floor(points/voxel_size).astype('int')
     
     stats = defaultdict(lambda: (np.zeros(3),0))
@@ -77,56 +77,6 @@ def grid_subsampling(points, voxel_size):
     subsampled_points = np.array([v[0]/v[1] for v in stats.values()])
 
     return subsampled_points
-
-
-def grid_subsampling2(points, voxel_size):
-
-    #   Tips :
-    #       > First compute voxel indices in each direction for all the points (can be negative).
-    #       > Sum and count the points in each voxel (use a dictionaries with the indices as key).
-    #         Remember arrays cannot be dictionary keys, but tuple can.
-    #       > Divide the sum by the number of point in each cell.
-    #       > Do not forget you need to return a numpy array and not a dictionary.
-    #
-
-    # YOUR CODE
-    # we take voxels starting from the point (0,0,0) (data is centered or reasonably centered)
-    voxel_indices = np.floor(points/voxel_size).astype('int')
-    
-    stats = []
-    
-    passed_voxels = []
-    for i, voxel_index in enumerate(voxel_indices):
-        if tuple(voxel_index) not in passed_voxels:
-            mask = np.all(voxel_indices-voxel_index==0, axis=1)
-            stats.append(points[mask].mean(axis=0))
-            passed_voxels.append(tuple(voxel_index))
-
-    subsampled_points = np.array(stats)
-
-    return subsampled_points
-
-
-
-def grid_subsampling_colors_old(points, colors, voxel_size):
-
-    # YOUR CODE
-    # we take voxels starting from the point (0,0,0) (data is centered or reasonably centered)
-    voxel_indices = np.floor(points/voxel_size).astype('int')
-    
-    stats = defaultdict(lambda: (np.zeros(3),0))
-    stats_colors = defaultdict(lambda: (np.zeros(3),0))
-    for i, voxel_index in enumerate(voxel_indices):
-        s,c = stats[tuple(voxel_index)]
-        stats[tuple(voxel_index)] = (s+points[i], c+1)
-        
-        s,c = stats_colors[tuple(voxel_index)]
-        stats_colors[tuple(voxel_index)] = (s+colors[i], c+1)
-
-    subsampled_points = np.array([v[0]/v[1] for v in stats.values()])
-    subsampled_colors = np.array([np.clip((v[0]/v[1]).astype('uint8'),0,255) for v in stats_colors.values()])
-
-    return subsampled_points, subsampled_colors
 
 
 def grid_subsampling_colors(points, colors, voxel_size):
