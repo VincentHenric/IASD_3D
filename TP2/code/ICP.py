@@ -143,7 +143,7 @@ def icp_point_to_point(data, ref, max_iter, RMS_threshold):
 
     return data_aligned, R_list, T_list, neighbors_list, rms_list
 
-def icp_point_to_point_stochastic(data, ref, max_iter, RMS_threshold, sampling_limit=1000):
+def icp_point_to_point_stochastic(data, ref, max_iter, RMS_threshold, sampling_limit=1000, final_overlap=1):
     '''
     Iterative closest point algorithm with a point to point strategy.
     Inputs :
@@ -183,14 +183,25 @@ def icp_point_to_point_stochastic(data, ref, max_iter, RMS_threshold, sampling_l
         data_aligned_sampled_indices = np.random.choice(np.arange(data_aligned.shape[1]), size=sampling_limit, replace=False)
         data_aligned_sampled = data_aligned[:, data_aligned_sampled_indices]
         
-        neighborhood_indices = kdtree.query(data_aligned_sampled.T, k=1, return_distance=False).squeeze()
+        distances, neighborhood_indices = kdtree.query(data_aligned_sampled.T, k=1, return_distance=True)
+        distances = distances.squeeze()
+        neighborhood_indices = neighborhood_indices.squeeze()
         neighborhoods = ref[:,neighborhood_indices]
-
-        R, T = best_rigid_transform(data_aligned_sampled, neighborhoods)
+        
+        if final_overlap != 1:
+            nb_indices_to_select = int(len(distances) * final_overlap)
+            kept_indices = np.argpartition(distances, nb_indices_to_select)[:nb_indices_to_select]
+            data_aligned_sampled2 = data_aligned_sampled[:, kept_indices]
+            neighborhoods2 = neighborhoods[:, kept_indices]
+        else:
+            data_aligned_sampled2 = data_aligned_sampled
+            neighborhoods2 = neighborhoods
+        
+        R, T = best_rigid_transform(data_aligned_sampled2, neighborhoods2)
         
         data_aligned = R @ data_aligned + T
 
-        rms = np.sqrt(np.mean(np.linalg.norm(neighborhoods-data_aligned[:,data_aligned_sampled_indices], axis=0)))
+        rms = np.sqrt(np.mean(np.linalg.norm(neighborhoods-data_aligned_sampled, axis=0)))
         
         R_list.append(old_R @ R)
         T_list.append(R @ old_T + T)
@@ -354,13 +365,15 @@ if __name__ == '__main__':
         max_iter = 100
         RMS_threshold = 1e-5
         sampling_limits = [1000, 10000, 50000]
-
+        rms_dict = {}
+        
         # Apply fast ICP for different values of the sampling_limit parameter
         for sampling_limit in sampling_limits:
             print('Sampling_limit = {}'.format(sampling_limit))
             
             data_aligned, R_list, T_list, neighbors_list, rms_list = icp_point_to_point_stochastic(data, ref, max_iter, RMS_threshold, sampling_limit)
-    
+            rms_dict[sampling_limit] = rms_list
+            
             # Plot RMS
             plt.clf()
             plt.plot(rms_list)
@@ -368,7 +381,57 @@ if __name__ == '__main__':
             plt.ylabel('rms')
             plt.savefig('../images/rms_plot_nddc_{}.png'.format(sampling_limit))
             
-            write_ply('../data/nddc_transformed_{}.ply'.format(sampling_limit), [new_data.T], ['x', 'y', 'z'])
+            write_ply('../data/nddc_transformed_{}.ply'.format(sampling_limit), [data_aligned.T], ['x', 'y', 'z'])
             #
             # => To plot something in python use the function plt.plot() to create the figure and 
             #    then plt.show() to display it
+        for k,v in rms_dict.items():
+            plt.plot(v, label=k)
+        plt.legend()
+        plt.savefig('../images/rms_plot_nddc_sampling_limits.png')
+    
+    # If statement to skip this part if wanted
+    if False:
+
+        # Cloud paths
+        NDDC_1_path = '../data/Notre_Dame_Des_Champs_1.ply'
+        NDDC_2_path = '../data/Notre_Dame_Des_Champs_2.ply'
+
+        # Load clouds
+        ref = read_ply(NDDC_1_path)
+        ref = np.vstack((ref['x'], ref['y'], ref['z']))
+        
+        data = read_ply(NDDC_2_path)
+        data = np.vstack((data['x'], data['y'], data['z']))
+        
+        # parameters
+        max_iter = 100
+        RMS_threshold = 1e-5
+        sampling_limit = 10000
+        final_overlaps = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+        rms_dict = {}
+
+        # Apply fast ICP for different values of the sampling_limit parameter
+        for final_overlap in final_overlaps:
+            print('Final Overlap = {}'.format(final_overlap))
+            
+            data_aligned, R_list, T_list, neighbors_list, rms_list = icp_point_to_point_stochastic(data, ref, max_iter, RMS_threshold, sampling_limit, final_overlap)
+            rms_dict[final_overlap] = rms_list
+            
+            # Plot RMS
+            #plt.clf()
+            plt.plot(rms_list, label=final_overlap)
+            plt.xlabel('iterations')
+            plt.ylabel('rms')
+            plt.savefig('../images/rms_plot_nddc_{}_overlap_{}.png'.format(sampling_limit, final_overlap))
+            
+            print('RMS = {}'.format(rms_list[-1]))
+            
+            write_ply('../data/nddc_transformed_{}_overlap_{}.ply'.format(sampling_limit, final_overlap), [data_aligned.T], ['x', 'y', 'z'])
+        
+        for k,v in rms_dict.items():
+            plt.plot(v, label=k)
+        plt.legend()
+        plt.savefig('../images/rms_plot_nddc_{}_overlaps.png'.format(sampling_limit))
+
+
