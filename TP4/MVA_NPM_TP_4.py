@@ -136,6 +136,9 @@ def import_and_clean(filename="normal.png"):
     
     norms = np.linalg.norm(img, axis=-1, keepdims=True)
     mask = (norms <= 10).squeeze()
+    img = (img - 127)/127
+    mask = mask & (img[:,:,-1]<0)
+    
     img[:,:,:2] = (img[:,:,:2] - 127)/127
     img[:,:,-1] = img[:,:,-1] / 255
     
