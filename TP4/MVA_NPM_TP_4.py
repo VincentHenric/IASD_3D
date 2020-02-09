@@ -131,10 +131,14 @@ def shade(img, lightsources, material, xo, kind='lambert'):
 def import_and_clean(filename="normal.png"):
     normalImage = Image.open(filename)
 
-    img = np.array(normalImage)[:, :, :-1]
+    img = np.array(normalImage)[:, :, :-1].astype(np.float)
+    
     
     norms = np.linalg.norm(img, axis=-1, keepdims=True)
     mask = (norms <= 10).squeeze()
+    img[:,:,:2] = (img[:,:,:2] - 127)/127
+    img[:,:,-1] = img[:,:,-1] / 255
+    
     img[mask] = 1
     img = img / np.linalg.norm(img, axis=-1, keepdims=True)
     img[mask] = 0
