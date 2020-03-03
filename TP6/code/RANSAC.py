@@ -236,10 +236,10 @@ if __name__ == '__main__':
         remaining_inds = (1-points_in_plane).nonzero()[0]
 
         # Save the best extracted plane and remaining points
-        write_ply('../best_plane.ply',
+        write_ply('../best_plane_RANSAC.ply',
                   [points[plane_inds], colors[plane_inds]],
                   ['x', 'y', 'z', 'red', 'green', 'blue'])
-        write_ply('../remaining_points.ply',
+        write_ply('../remaining_points_RANSAC.ply',
                   [points[remaining_inds], colors[remaining_inds]],
                   ['x', 'y', 'z', 'red', 'green', 'blue'])
         
@@ -264,10 +264,10 @@ if __name__ == '__main__':
         remaining_inds = (1-points_in_plane).nonzero()[0]
 
         # Save the best extracted plane and remaining points
-        write_ply('../best_plane.ply',
+        write_ply('../best_plane_RANSAC.ply',
                   [points[plane_inds], colors[plane_inds]],
                   ['x', 'y', 'z', 'red', 'green', 'blue'])
-        write_ply('../remaining_points.ply',
+        write_ply('../remaining_points_RANSAC.ply',
                   [points[remaining_inds], colors[remaining_inds]],
                   ['x', 'y', 'z', 'red', 'green', 'blue'])
 
@@ -289,10 +289,10 @@ if __name__ == '__main__':
         print('\nmulti RANSAC done in {:.3f} seconds'.format(t1 - t0))
 
         # Save the best planes and remaining points
-        write_ply('../best_planes.ply',
+        write_ply('../best_planes_multi_RANSAC.ply',
                   [points[plane_inds], colors[plane_inds], plane_labels[:,None].astype(np.int32)],
                   ['x', 'y', 'z', 'red', 'green', 'blue', 'plane_label'])
-        write_ply('../remaining_points_.ply',
+        write_ply('../remaining_points_multi_RANSAC.ply',
                   [points[remaining_inds], colors[remaining_inds]],
                   ['x', 'y', 'z', 'red', 'green', 'blue'])
 

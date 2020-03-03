@@ -104,15 +104,20 @@ def compute_planarities_and_normals(points, radius):
     return planarities, normals
 
 
-def region_criterion(p1, p2, n1, n2, threshold1=0.05, threshold2=0.05):
-    return np.logical_and(np.abs((p2-p1)@n1) < threshold1, np.arccos(np.clip(np.abs(n2@n1),0,1))< threshold2)
+def region_criterion(p1, p2, n1, n2, threshold1=0.05, threshold2=0.05, nseed=None):
+    angle_with_seed = True
+    if nseed is not None:
+        angle_with_seed = np.arccos(np.clip(np.abs(n2@nseed),0,1))< threshold2
+    return np.logical_and(np.abs((p2-p1)@n1) < threshold1, np.arccos(np.clip(np.abs(n2@n1),0,1))< threshold2, angle_with_seed)
 
+def plane_consistency_criterion(n1, n2, threshold):
+    return np.arccos(np.clip(np.abs(n2@n1),0,1))< threshold
 
 def queue_criterion(p, threshold=0.9):
     return p>threshold
 
 
-def RegionGrowing(cloud, normals, planarities, radius):
+def RegionGrowing(cloud, normals, planarities, radius, seed_heuristics=True):
 
     # TODO:
     
@@ -123,7 +128,11 @@ def RegionGrowing(cloud, normals, planarities, radius):
     
     i = 0
     c = 0
+    
     seed = np.random.randint(N)
+    if seed_heuristics:
+        #seed = np.random.choice(np.where(planarities>0.9)[0])
+        seed = np.argmax(planarities)
     
     queue = [seed]
     region[seed] = 1
@@ -141,8 +150,9 @@ def RegionGrowing(cloud, normals, planarities, radius):
                                                    cloud[neighbors_mask],
                                                    normals[q_index],
                                                    normals[neighbors_mask],
-                                                   threshold1=0.1,
-                                                   threshold2=0.1)
+                                                   threshold1=0.05,
+                                                   threshold2=0.05,
+                                                   nseed=normals[seed])
         
         admitted_indices = neighbors_index[selected_neighbors_mask]
         admitted_mask = np.zeros(N, dtype=bool)
@@ -153,24 +163,37 @@ def RegionGrowing(cloud, normals, planarities, radius):
         inspected[admitted_indices] = 1
         
         for idx in new_indices:
-            if queue_criterion(planarities[idx], threshold=0.7):
-                queue.append(idx)
-                c += 1
+            if queue_criterion(planarities[idx], threshold=0.8):
+                    queue.append(idx)
+                    c += 1
         
         i+=1
 
     return region
 
 
-def multi_RegionGrowing(cloud, normals, planarities, radius, NB_PLANES=2):
+def multi_RegionGrowing(cloud, normals, planarities, radius, NB_PLANES=2, seed_heuristics=True):
 
     # TODO:
+    N = len(cloud)
+    region = np.zeros((N, NB_PLANES))
+    remaining_indices = np.arange(N)
+    
+    for k in range(NB_PLANES):
+        region[remaining_indices,k] = RegionGrowing(
+                cloud[remaining_indices],
+                normals[remaining_indices],
+                planarities[remaining_indices],
+                radius,
+                seed_heuristics
+                )
+        remaining_indices = np.where(~np.any(region, axis=1))[0]
 
-    plane_inds = np.arange(0, 0)
-    plane_labels = np.arange(0, 0)
-    remaining_inds = np.arange(0, N)
 
-    return plane_inds, remaining_inds, plane_labels
+    plane_inds = np.where(np.any(region, axis=1))[0]
+    plane_labels = (region[plane_inds] * np.arange(NB_PLANES)).sum(axis=1)
+
+    return plane_inds, remaining_indices, plane_labels
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -216,15 +239,21 @@ if __name__ == '__main__':
         print('normals and planarities computation done in {:.3f} seconds'.format(t1 - t0))
     
         # Save
-        write_ply('../planarities.ply',
-                  [points, planarities],
-                  ['x', 'y', 'z', 'planarities'])
+        if False:
+            write_ply('../planarities.ply',
+                      [points, planarities],
+                      ['x', 'y', 'z', 'planarities'])
 
     # Find a plane by Region Growing
     # ******************************
     #
 
-    if True:
+    if False:
+        heuristics = True
+        heuristics_str = ''
+        if heuristics:
+            heuristics_str = '_heuristics'
+            
         # Load point cloud
         data = read_ply('../planarities.ply')
     
@@ -238,7 +267,7 @@ if __name__ == '__main__':
 
         # Find a plane by Region Growing
         t0 = time.time()
-        region = RegionGrowing(points, normals, planarities, radius)
+        region = RegionGrowing(points, normals, planarities, radius, heuristics)
         t1 = time.time()
         print('Region Growing done in {:.3f} seconds'.format(t1 - t0))
 
@@ -247,10 +276,10 @@ if __name__ == '__main__':
         remaining_inds = (1 - region).nonzero()[0]
 
         # Save the best plane
-        write_ply('../best_plane_regiongrowing.ply',
+        write_ply('../best_plane_regiongrowing{}.ply'.format(heuristics_str),
                   [points[plane_inds], colors[plane_inds], region[plane_inds].astype(np.int32), planarities[plane_inds]],
                   ['x', 'y', 'z', 'red', 'green', 'blue', 'label', 'planarities'])
-        write_ply('../remaining_points_regiongrowing.ply',
+        write_ply('../remaining_points_regiongrowing{}.ply'.format(heuristics_str),
                   [points[remaining_inds], colors[remaining_inds], region[remaining_inds].astype(np.int32), planarities[remaining_inds]],
                   ['x', 'y', 'z', 'red', 'green', 'blue', 'label', 'planarities'])
 
@@ -258,7 +287,12 @@ if __name__ == '__main__':
     # ******************************
     #
 
-    if False:
+    if True:
+        heuristics = False
+        heuristics_str = ''
+        if heuristics:
+            heuristics_str = '_heuristics'
+            
         # Define parameters of multi_RANSAC
         radius = 0.2
         NB_PLANES = 10
@@ -270,10 +304,10 @@ if __name__ == '__main__':
         print('multi RegionGrowing done in {:.3f} seconds'.format(t1 - t0))
 
         # Save the best planes and remaining points
-        write_ply('../best_planes.ply',
+        write_ply('../best_planes_multi_regiongrowing{}.ply'.format(heuristics_str),
                   [points[plane_inds], colors[plane_inds], plane_labels.astype(np.int32)],
                   ['x', 'y', 'z', 'red', 'green', 'blue', 'plane_label'])
-        write_ply('../remaining_points_.ply',
+        write_ply('../remaining_points_multi_regiongrowing{}.ply'.format(heuristics_str),
                   [points[remaining_inds], colors[remaining_inds]],
                   ['x', 'y', 'z', 'red', 'green', 'blue'])
 
