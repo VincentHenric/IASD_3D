@@ -22,17 +22,17 @@ CLASSES = {1: 'man-made terrain',
            8: 'cars'}
 
 ZOOM_COORDINATES = {
-        'bildstein_station1_xyz_intensity_rgb':{'min_x':12, 'max_x':55, 'min_y':-10, 'max_y':40},
-        'bildstein_station3_xyz_intensity_rgb':{'min_x':-20, 'max_x':17, 'min_y':-70, 'max_y':-25},
-        'bildstein_station5_xyz_intensity_rgb':{'min_x':-40, 'max_x':-5, 'min_y':-35, 'max_y':15}
+        'bildstein1':{'min_x':12, 'max_x':55, 'min_y':-10, 'max_y':40},
+        'bildstein3':{'min_x':-20, 'max_x':17, 'min_y':-70, 'max_y':-25},
+        'bildstein5':{'min_x':-40, 'max_x':-5, 'min_y':-35, 'max_y':15}
         }
 
-REF_POINTS = [{'bildstein_station1_xyz_intensity_rgb':{'x':30.249, 'y':32.927, 'z':31.1},
-               'bildstein_station3_xyz_intensity_rgb':{'x':3.597, 'y':-65.583, 'z':28.228},
-               'bildstein_station5_xyz_intensity_rgb':{'x':-30.251, 'y':3.979, 'z':32.137}},
-              {'bildstein_station1_xyz_intensity_rgb':{'x':46.177, 'y':26.846, 'z':30.41},
-               'bildstein_station3_xyz_intensity_rgb':{'x':-13.306, 'y':-62.783, 'z':28.636},
-               'bildstein_station5_xyz_intensity_rgb':{'x':-14.469, 'y':-2.091, 'z':32.137}}
+REF_POINTS = [{'bildstein1':{'x':30.249, 'y':32.927, 'z':31.1},
+               'bildstein3':{'x':3.597, 'y':-65.583, 'z':28.228},
+               'bildstein5':{'x':-30.251, 'y':3.979, 'z':32.137}},
+              {'bildstein1':{'x':46.177, 'y':26.846, 'z':30.41},
+               'bildstein3':{'x':-13.306, 'y':-62.783, 'z':28.636},
+               'bildstein5':{'x':-14.469, 'y':-2.091, 'z':32.137}}
 ]
 #np.array([[3.16, 4.73, 1.12],
 #        [24.31, 51.87, -3.54],
@@ -45,13 +45,13 @@ def load_dataset(filename, max_rows=None):
     #return data[:,:3], data[:,[3]], data[:,4:]
 
 def save_dataset_npy(data, filename_rad):
-    np.save(os.path.join(PATH, '{}_transformed.npy'.format(filename_rad)), data)
+    np.save(os.path.join(PATH, 'transformed_{}.npy'.format(filename_rad)), data)
     #np.savetxt(os.path.join(PATH, '{}_transformed.txt'.format(filename_rad)), data)
 
-def save_dataset_ply(data, filename_rad, suffix='transformed'):
-    if suffix!='':
-        suffix = '_' + suffix
-    write_ply(os.path.join(PATH, '{}{}.ply'.format(filename_rad, suffix)),
+def save_dataset_ply(data, filename_rad, prefix='transformed'):
+    if prefix!='':
+        prefix = prefix + '_'
+    write_ply(os.path.join(PATH, '{}{}.ply'.format(prefix, filename_rad)),
               data,
               ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue'])
 
@@ -68,7 +68,7 @@ def clean_dataset(filename_rad, max_rows=None):
     save_dataset_ply(data, filename_rad)
     
 def select_points(filename_rad):
-    cloud_ply = read_ply(os.path.join(PATH, filename_rad+'_transformed.ply'))
+    cloud_ply = read_ply(os.path.join(PATH, 'transformed_' + filename_rad + '.ply'))
     
     for coord in ['x', 'y', 'z']:
         min_val = ZOOM_COORDINATES[filename_rad].get('min_'+coord)
@@ -86,11 +86,11 @@ def center(cloud_points):
 
 if __name__ == '__main__':
     if False:
-        filename_rad = 'bildstein_station5_xyz_intensity_rgb'
+        filename_rad = 'bildstein1'
         clean_dataset(filename_rad)
         
     if True:
-        filename_rad = 'bildstein_station1_xyz_intensity_rgb'
+        filename_rad = 'bildstein1'
         
         # selection
         cloud_ply = select_points(filename_rad)
@@ -105,7 +105,7 @@ if __name__ == '__main__':
         
         save_dataset_ply((cloud_points, intensities[:,None].astype('uint8'), colors.astype('uint8')),
                        filename_rad,
-                       suffix='cutted')
+                       prefix='cutted')
         
 
 
