@@ -12,7 +12,7 @@ import os
 from utils.ply import write_ply, read_ply
 from fileutils import dict_to_str, give_filename, parse_filename
 
-def grid_subsample(cloud_points, colors, intensities, voxel_size):
+def grid_subsample(cloud_points, colors, intensities, voxel_size, **kwargs):
     voxel_indices = np.floor(cloud_points/voxel_size).astype('int')
     
     stats = defaultdict(lambda: ((np.zeros(3),np.zeros(3),np.zeros(3),0)))
@@ -25,9 +25,9 @@ def grid_subsample(cloud_points, colors, intensities, voxel_size):
     subsampled_colors = np.array([np.clip((v[1]/v[-1]).astype('uint8'),0,255) for v in stats.values()])
     subsampled_intensities = np.array([np.clip((v[2]/v[-1]).astype('uint8'),0,255) for v in stats.values()])
     
-    return subsampled_points, subsampled_colors, subsampled_intensities
+    return subsampled_points, subsampled_colors, subsampled_intensities, None
 
-def cloud_decimation(cloud_points, colors, intensities, factor):
+def cloud_decimation(cloud_points, colors, intensities, factor, **kwargs):
 
     # YOUR CODE
     factor = int(1/factor)
@@ -35,9 +35,10 @@ def cloud_decimation(cloud_points, colors, intensities, factor):
     decimated_colors = colors[0:-1:factor,:]
     decimated_intensities = intensities[0:-1:factor]
 
-    return decimated_points, decimated_colors, decimated_intensities
+    return decimated_points, decimated_colors, decimated_intensities, list(range(0,len(cloud_points),factor))
 
-def subsample(cloud_points, colors, intensities, subs='grid', **kwargs):
+def subsample(cloud_points, colors, intensities, **kwargs):
+    subs = kwargs.get('subs','grid')
     if subs=='grid':
         return grid_subsample(cloud_points, colors, intensities, **kwargs)
     elif subs=='decimation':
@@ -57,7 +58,7 @@ if __name__ == '__main__':
     if True:
     
         # Load cloud as a [N x 3] matrix
-        filename = 'cutted_bildstein3.ply'
+        filename = 'cutted_bildstein1.ply'
         prefix, name, params = parse_filename(filename)
 
         cloud_path = os.path.join(data_path, filename)
@@ -74,7 +75,7 @@ if __name__ == '__main__':
         colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
         intensities = cloud_ply['intensity']
         
-        cloud_points, colors, intensities = subsample(cloud_points, colors, intensities, **params)
+        cloud_points, colors, intensities, _ = subsample(cloud_points, colors, intensities, **params)
         
         # Preprocessing
         params.update({'noise':0.001})
