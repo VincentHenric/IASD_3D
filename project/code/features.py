@@ -10,15 +10,18 @@ import numpy as np
 from matplotlib import pyplot as plt
 from sklearn.neighbors import KDTree
 from scipy.stats import entropy
-from utils.ply import write_ply, read_ply
+from utils.ply import write_ply, read_ply, check_with_colors_and_intensity
 from fileutils import dict_to_str, give_filename, parse_filename
 import subsampling
+import gc
 
 import time
 import os
 
 def local_PCA(points):
-    
+    """
+    computes the local PCA to obtain normals and eigenvalues
+    """
     bary = points.mean(axis=0, keepdims=True)
     
     Q = points - bary
@@ -26,12 +29,14 @@ def local_PCA(points):
     cov = 1/len(points) * (Q.T @ Q)
 
     eigenvalues, eigenvectors = np.linalg.eigh(cov)
-
+    #eigenvalues = np.sort(np.linalg.svd(covariances[0], hermitian=True, compute_uv=False))
     return np.abs(eigenvalues), eigenvectors
 
 
 def neighborhood_PCA(query_points, cloud_points, radius):
-
+    """
+    computes the local PCA to obtain normals and eigenvalues for a group of query points
+    """
     all_eigenvalues = np.zeros((query_points.shape[0], 3))
     all_eigenvectors = np.zeros((query_points.shape[0], 3, 3))
     
@@ -49,6 +54,9 @@ def neighborhood_PCA(query_points, cloud_points, radius):
     return all_eigenvalues, all_eigenvectors
 
 def get_general_features(query_points_indices, cloud_points, colors, intensities, kdtree, query_type='radius', radius=None, nb_neighbors=None):
+    """
+    returns normals, dimensionality and intensity entropy features
+    """
     n = len(query_points_indices)
     epsilon = 1e-16
     
@@ -74,6 +82,9 @@ def get_general_features(query_points_indices, cloud_points, colors, intensities
     return all_normals, all_geometric, all_intensities
 
 def query_kdtree(cloud_points, kdtree, query_type='radius', radius=None, nb_neighbors=None):
+    """
+    query neighbors with kdtree
+    """
     if query_type == 'radius':
         return kdtree.query_radius(cloud_points, r=radius, count_only=False, return_distance=False)
     elif query_type == 'neighbors':
@@ -81,11 +92,23 @@ def query_kdtree(cloud_points, kdtree, query_type='radius', radius=None, nb_neig
     else:
         raise ValueError('wrong query type')
 
-def compute_features(query_points_indices, cloud_points, colors, intensities, query_type='radius', radius=None, nb_neighbors=None):
+def compute_features(query_points_indices, cloud_points, colors, intensities, with_colors=True, remove_geometric=None, query_type='radius', radius=None, nb_neighbors=None):
+    """
+    computes all the features and return the covariance matrix for a given query type from kdtree
+    """
     epsilon = 1e-16
 
     # Initialize covariance matrices
-    query_cov = np.zeros((len(query_points_indices), 10, 10))
+    if with_colors:
+        if remove_geometric is not None:
+            query_cov = np.zeros((len(query_points_indices), 9, 9))
+        else:
+            query_cov = np.zeros((len(query_points_indices), 10, 10))
+    else:
+        if remove_geometric is not None:
+            query_cov = np.zeros((len(query_points_indices), 5, 5))
+        else:
+            query_cov = np.zeros((len(query_points_indices), 6, 6))
     
     # preprocessing for colors
     if colors.dtype in [np.uint8, 'uint8'] or colors.max()>1:
@@ -100,6 +123,8 @@ def compute_features(query_points_indices, cloud_points, colors, intensities, qu
     # Compute the features for all query points in the cloud
     all_normals, all_geometric, all_intensities = get_general_features(all_neighborhood_indices, cloud_points, colors, intensities, kdtree, query_type=query_type, radius=radius, nb_neighbors=nb_neighbors)
     
+    if remove_geometric is not None:
+        all_geometric = np.delete(all_geometric, remove_geometric, axis=1)
     # take indices for query points
     #neighborhood_indices = neighborhood_indices[query_points_indices]
     
@@ -138,12 +163,19 @@ def compute_features(query_points_indices, cloud_points, colors, intensities, qu
         ent_intensities = (ent_intensities-ent_intensities.min())/(ent_intensities.max()-ent_intensities.min()+epsilon)
 
         # concatenation
-        features = np.concatenate((all_geometric[neighbor_index_list_2],
+        if with_colors:
+            features = np.concatenate((all_geometric[neighbor_index_list_2],
+                                       alphas[:,None],
+                                       betas[:,None],
+                                       gammas[:,None],
+                                       colors[neighbor_index_list],
+                                       ent_intensities), axis=1)
+        else:
+            features = np.concatenate((all_geometric[neighbor_index_list_2],
                                    alphas[:,None],
                                    betas[:,None],
-                                   gammas[:,None],
-                                   colors[neighbor_index_list],
-                                   ent_intensities), axis=1)
+                                   gammas[:,None]), axis=1)
+
         
         bary = features.mean(axis=0, keepdims=True)
         Q = features - bary
@@ -162,6 +194,9 @@ def select_top_indices(query_cov, q=0.95):
     return np.where(dets>quantile)[0]
 
 def compute_r_bar(cloud_points):
+    """
+    computes the average resolution of a point cloud
+    """
     kdtree = KDTree(cloud_points)  
     dist, ind = kdtree.query(cloud_points, k=2, return_distance=True)
     return dist[:,1].mean()
@@ -193,31 +228,52 @@ def normalize_intensities(intensities, low=-2048, high=2047):
     intensities = (intensities - low)/(high-low)*255
     return intensities
 
-def ACOV(cloud_points, colors, intensities, radius, t0=0.268, b=1.3, q=0.95, factor=0.2):
+def ACOV(cloud_points, colors, intensities, radius, with_colors=True, remove_geometric=None, t0=0.268, b=1.3, q=0.95, factor=0.2):
+    """
+    computes the ACOV predictor and the keypoints from a cloud points
+    """
     params = {'subs':'decimation', 'factor':factor}
     sub_points, sub_colors, sub_intensities, sub_indices = subsampling.subsample(cloud_points, colors, intensities, **params)
     
-    subcovariances = compute_features(np.arange(len(sub_points)), sub_points, sub_colors, sub_intensities, query_type='radius', radius=radius)
+    subcovariances = compute_features(np.arange(len(sub_points)),
+                                      sub_points,
+                                      sub_colors,
+                                      sub_intensities,
+                                      with_colors=with_colors,
+                                      remove_geometric=remove_geometric,
+                                      query_type='radius',
+                                      radius=radius)
     keypoints = select_top_indices(subcovariances , q=q)
     key_point_indices = np.array(sub_indices)[keypoints]
     
     n = len(key_point_indices)
-    m_values = list(range(6))
+    m_values = list(range(4))
     current_dets = np.zeros(n)
-    current_covariances = np.zeros((n, 10, 10))
+    if with_colors:
+        current_covariances = np.zeros((n, subcovariances.shape[-1], subcovariances.shape[-1]))
+    else:
+        current_covariances = np.zeros((n, subcovariances.shape[-1], subcovariances.shape[-1]))
     current_m = m_values[0] * np.ones(n)
     
     for m in m_values:
+        print('m={}'.format(m))
         radius = t0 * b**m
-        covariances = compute_features(key_point_indices, cloud_points, colors, intensities, query_type='radius', radius=radius)
+        covariances = compute_features(key_point_indices,
+                                       cloud_points,
+                                       colors,
+                                       intensities,
+                                       with_colors=with_colors,
+                                       remove_geometric=remove_geometric,
+                                       query_type='radius',
+                                       radius=radius)
         dets = np.abs(np.linalg.det(covariances))
         change = (dets > current_dets)
         current_covariances = change[:,None,None]*covariances + (~change[:,None,None])*current_covariances
         current_m = change*m + (~change)*current_m
         current_dets = np.maximum(current_dets, dets)
+        gc.collect()
     
     return current_covariances, current_m, key_point_indices
-        
 
 # ------------------------------------------------------------------------------------------
 #
@@ -232,8 +288,8 @@ if __name__ == '__main__':
     
     data_path = '../data'
     saved_data_path = '../saved_data'
-    r_bar = 0.0134
-    r_bar = 0.0224
+    #r_bar = 0.0134
+    r_bar = 0.022428588781353585
                 
     if False:
         
@@ -249,41 +305,10 @@ if __name__ == '__main__':
         colors = np.zeros((len(cloud_points),3))
         intensities = np.ones((len(cloud_points),1))
         
-        colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
-        intensities = cloud_ply['intensity']
-        
-        
-        # Load points of interest
-        query_points_indices = np.arange(len(cloud_points))
-        
-        # Parameters
-        params.update({'radius':0.3})
-        
-        # Computations        
-        all_normals, all_geometric, all_intensities, _ = get_general_features(query_points_indices, cloud_points, colors, intensities, params['radius'])
-
-        filename_features = give_filename(name, prefix='features', params=params, extension='ply')
-        write_ply(os.path.join(saved_data_path, filename_features),
-                  (cloud_points, colors, all_normals, all_geometric, all_intensities),
-                  ['x', 'y', 'z', 'red', 'green', 'blue', 'nx', 'ny', 'nz', 'linearity', 'planarity', 'sphericity', 'intensity_entropy']
-                  )
-        
-    
-    if False:
-        
-        # Load cloud as a [N x 3] matrix
-        filename = 'features_bildstein3_factor:0.2-noise:0.001-radius:0.3-subs:decimation.ply'
-        #filename = 'bunny-original.ply'
-        
-        prefix, name, params = parse_filename(filename)
-        cloud_path = os.path.join(saved_data_path, filename)
-        cloud_ply = read_ply(cloud_path)
-        
-        cloud_points = np.vstack((cloud_ply['x'], cloud_ply['y'], cloud_ply['z'])).T
-        colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
-        all_intensities = cloud_ply['intensity_entropy']
-        all_normals = np.vstack((cloud_ply['nx'], cloud_ply['ny'], cloud_ply['nz'])).T
-        all_geometric = np.vstack((cloud_ply['linearity'], cloud_ply['planarity'], cloud_ply['sphericity'])).T
+        with_colors = check_with_colors_and_intensity(cloud_ply)
+        if with_colors:
+            colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
+            intensities = cloud_ply['intensity']
         
         
         # Load points of interest
@@ -381,19 +406,17 @@ if __name__ == '__main__':
         np.save(os.path.join(saved_data_path, cov_filename), query_cov[sampled_query_points_indices])
         np.save(os.path.join(saved_data_path, indices_filename), query_points_indices)
         
-        #write_ply('../data/Lille_street_small_featured_{}.ply'.format(radius), [new_cloud], ['x', 'y', 'z', 'verticality', 'linearity', 'planarity', 'sphericity'])
 
 
-
-    # Features computation
+    # Features computation (without ACOV)
     # ********************
     #
 
     if False:
 
         # Load cloud as a [N x 3] matrix
-        filename = 'bildstein3_factor:0.2-noise:0.001-subs:decimation.ply'
-        #filename = 'bunny-original.ply'
+        #filename = 'bildstein3_factor:0.2-noise:0.001-subs:decimation.ply'
+        filename = 'bunny-original.ply'
         
         prefix, name, params = parse_filename(filename)
         cloud_path = os.path.join(data_path, filename)
@@ -403,8 +426,10 @@ if __name__ == '__main__':
         colors = np.zeros((len(cloud_points),3))
         intensities = np.ones((len(cloud_points),1))
         
-        colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
-        intensities = cloud_ply['intensity']
+        with_colors = check_with_colors_and_intensity(cloud_ply)
+        if with_colors:
+            colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
+            intensities = cloud_ply['intensity']
         
         
         # Load points of interest
@@ -413,20 +438,15 @@ if __name__ == '__main__':
         query_points_indices = np.arange(len(cloud_points))
         
         # Parameters
-        params.update({'radius':0.3})
-#        radius = 0.3
-#        radius = 0.02
-#        noise = 0.001
-        #query_points_indices = np.array([1,10,100])
+        params.update({'radius':0.026})
         
         # Computations
-        query_cov = compute_features(query_points_indices, cloud_points, colors, intensities, query_type='radius', radius=params['radius'])
+        query_cov = compute_features(query_points_indices, cloud_points, colors, intensities, with_colors=with_colors, query_type='radius', radius=params['radius'])
         
         # Save results
         cov_filename = give_filename(name, prefix='covariance', params=params, extension='npy')
         np.save(os.path.join(saved_data_path, cov_filename), query_cov)
         
-        #write_ply('../data/Lille_street_small_featured_{}.ply'.format(radius), [new_cloud], ['x', 'y', 'z', 'verticality', 'linearity', 'planarity', 'sphericity'])
 
     # Features computation with ACOV approach
     # ********************
@@ -434,6 +454,8 @@ if __name__ == '__main__':
 
     if True:
         filename = 'cutted_bildstein1.ply'
+        #filename = 'bunny-original-noise:0.005.ply'
+        #filename = 'bunny-perturbed.ply'
         prefix, name, params = parse_filename(filename)
         
         cloud_path = os.path.join(data_path, filename)
@@ -441,13 +463,21 @@ if __name__ == '__main__':
         
         # parameters
         #params = {'subs':'grid', 'voxel_size':0.2}
-        params = {'subs':'decimation', 'factor':0.5, 'radius':0.3, 'q':0.95}
         
         cloud_points = np.vstack((cloud_ply['x'], cloud_ply['y'], cloud_ply['z'])).T
-        colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
-        intensities = cloud_ply['intensity']
+        colors = np.zeros((len(cloud_points),3))
+        intensities = np.ones((len(cloud_points),1))
         
-        current_covariances, current_m, key_point_indices = ACOV(cloud_points, colors, intensities, radius=params['radius'], t0=0.268, b=1.3, q=params['q'], factor=params['factor'])
+        with_colors = check_with_colors_and_intensity(cloud_ply)
+        if with_colors:
+            colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
+            intensities = cloud_ply['intensity']
+            
+        #r_bar = compute_r_bar(cloud_points)
+        r_bar = 0.022428588781353585
+        params = {'subs':'decimation', 'factor':0.5, 'radius':np.round(25*r_bar,3), 'q':0.90, 'geom':0, 't0':np.round(20*r_bar,3)}
+        
+        current_covariances, current_m, key_point_indices = ACOV(cloud_points, colors, intensities, with_colors=with_colors, remove_geometric=params['geom'], radius=params['radius'], t0=params['t0'], b=1.3, q=params['q'], factor=params['factor'])
 
         cov_filename = give_filename(name, prefix='covariance', params=params, extension='npy')
         np.save(os.path.join(saved_data_path, cov_filename), current_covariances)
@@ -459,55 +489,13 @@ if __name__ == '__main__':
         keypoints[key_point_indices] = 1
         
         keypoints_filename = give_filename(name, prefix='keypoints', params=params, extension='ply')
-        write_ply(os.path.join(saved_data_path, keypoints_filename),
-                  (cloud_points, intensities[:,None], colors, keypoints),
-                  ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue', 'keypoints'])
+        if with_colors:
+            write_ply(os.path.join(saved_data_path, keypoints_filename),
+                      (cloud_points, intensities[:,None], colors, keypoints),
+                      ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue', 'keypoints'])
+        else:
+            write_ply(os.path.join(saved_data_path, keypoints_filename),
+                  (cloud_points, keypoints),
+                  ['x', 'y', 'z', 'keypoints'])
 
-    # Features analysis
-    # ********************
-    #
-
-    if False:
-
-        # Load cloud as a [N x 3] matrix
-        filename = 'bildstein1_factor:0.2-noise:0.001-subs:decimation.ply'
-        cov_params = {'radius':0.3}
-        prefix, name, params = parse_filename(filename)
-        
-        cloud_path = os.path.join(data_path, filename)
-        cloud_ply = read_ply(cloud_path)
-        
-        cov_params.update(params)
-        cov_filename = give_filename(name, prefix='covariance', params=cov_params, extension='npy')
-        covariances = np.load(os.path.join(saved_data_path, cov_filename))
-
-        
-        cloud_points = np.vstack((cloud_ply['x'], cloud_ply['y'], cloud_ply['z'])).T
-        colors = np.vstack((cloud_ply['red'], cloud_ply['green'], cloud_ply['blue'])).T
-        intensities = cloud_ply['intensity']
-        
-        
-        # analysis
-        #determinants = np.linalg.det(covariances)
-        
-        #plt.hist(determinants[:100], bins=50)
-        
-        #indices = select_top_indices(query_cov[:,:6,:6], q=0.95)
-        quantile = 0.8
-        cov_params.update({'q':quantile})
-        indices = select_top_indices(covariances, q=cov_params['q'])
-        
-        keypoints = np.zeros((len(cloud_points),1))
-        keypoints[indices] = 1
-  
-#        write_ply(os.path.join(saved_data_path, 'sailant_{}_radius-{}_noise-{}.ply'.format(name, radius, noise)),
-#                  (cloud_points, intensities[:,None], colors, sailant),
-#                  ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue', 'sailant'])
-        
-        keypoints_filename = give_filename(name, prefix='keypoints', params=cov_params, extension='ply')
-        write_ply(os.path.join(saved_data_path, keypoints_filename),
-                  (cloud_points, intensities[:,None], colors, keypoints),
-                  ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue', 'keypoints'])
-
-        
-        
+    

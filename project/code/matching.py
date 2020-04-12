@@ -22,6 +22,9 @@ def generalized_eigenvalues(C1, C2):
     #return np.linalg.svd(cov1[0], hermitian=True, compute_uv=False)[1]
 
 def eigen_dist(C1, C2):
+    """
+    calculates the log-eigenvalue measure
+    """
     eigenvalues = np.abs(generalized_eigenvalues(C1, C2))
     return np.linalg.norm(np.log(eigenvalues))
 #eigenvalues, eigenvectors = np.linalg.eigh(cov)
@@ -32,29 +35,25 @@ def flatten_eigen_dist(dim):
     return func
     
 def get_distance_matrix(C1, C2):
+    """
+    calculates the distance matrix between keypoints
+    """
     dim = C1.shape[-1]
     distances = scipy.spatial.distance.cdist(C1.reshape(-1,dim**2), C2.reshape(-1,dim**2), metric=flatten_eigen_dist(dim))
     return distances
-
-#generalized_eigenvalues(cov1[0]*10**12, cov2[7]*10**12)
-
-#distances = np.zeros((5,3))
-#for i in range(5):
-#    for j in range(3):
-#        distances[i,j]=flatten_eigen_dist(10)(tmp1[i],tmp2[j])
-#
-#get_distance_matrix(cov1[[0]], cov2[:2])
-#get_distance_matrix(cov1[:10], cov2[7:8])
-#eigen_dist(cov1[0], cov2[7])
 
 def is_valid_match(d1, d2, ratio):
     return (d1 <= ratio * d2.min(axis=0)) & (d1 <= ratio * d2.min(axis=0))
 
 def get_correspondences(distances, ratio):
-    mask = (distances<=ratio*distances.min(axis=1, keepdims=True)) & (distances<=ratio*distances.min(axis=0, keepdims=True))
-    distances[~mask] = 0
-    distances = coo_matrix(distances)   
-    matches = np.concatenate((distances.row[:,None], distances.col[:,None], distances.data[:,None]), axis=1)
+    """
+    compute the candidates that pass the inclusive ratio strategy
+    """
+    dist = distances.copy()
+    mask = (dist<=ratio*dist.min(axis=1, keepdims=True)) & (dist<=ratio*dist.min(axis=0, keepdims=True))
+    dist[~mask] = 0
+    dist = coo_matrix(dist)   
+    matches = np.concatenate((dist.row[:,None], dist.col[:,None], dist.data[:,None]), axis=1)
     return matches
         
         
@@ -64,6 +63,9 @@ def get_correspondences(distances, ratio):
 #    return func
 
 def delta(gamma=0.01):
+    """
+    computes delta function for one match x one match
+    """
     def func(match1, match2):
         if match1[0]==match2[0] or match1[1]==match2[1]:
             return 0
@@ -75,6 +77,9 @@ def delta(gamma=0.01):
     return func
 
 def delta_arr(gamma=0.01):
+    """
+    computes delta function for one match x one match array (half vectorized, so faster than point to point)
+    """
     def func(match1, match_array):
         distances = np.zeros((len(match_array)))
         indices = np.where((match_array[:,0]==match1[0]) | (match_array[:,1]==match1[1]))
@@ -84,17 +89,20 @@ def delta_arr(gamma=0.01):
         return distances
     return func
 
-def delta_arr_arr(gamma=0.01):
-    def func(match_array_1, match_array_2):
-        distances = np.zeros((len(match_array)))
-        indices = np.where((match_array[:,0]==match1[0]) | (match_array[:,1]==match1[1]))
-        distances = np.minimum(match_array[:,-1], match1[-1])/np.maximum(match_array[:,-1], match1[-1])*np.exp(-np.abs(match_array[:,-1]-match1[-1])/gamma)
-        distances[distances<0.1] = 0
-        distances[indices] = 0
-        return distances
-    return func
+#def delta_arr_arr(gamma=0.01):
+#    def func(match_array_1, match_array_2):
+#        distances = np.zeros((len(match_array)))
+#        indices = np.where((match_array[:,0]==match1[0]) | (match_array[:,1]==match1[1]))
+#        distances = np.minimum(match_array[:,-1], match1[-1])/np.maximum(match_array[:,-1], match1[-1])*np.exp(-np.abs(match_array[:,-1]-match1[-1])/gamma)
+#        distances[distances<0.1] = 0
+#        distances[indices] = 0
+#        return distances
+#    return func
 
 def get_payoff_matrix3(matches, gamma=0.01):
+    """
+    implementation of the payoff matrix computation
+    """
     func = delta(gamma)
     row = []
     col = []
@@ -110,6 +118,9 @@ def get_payoff_matrix3(matches, gamma=0.01):
     return coo_matrix((data, (row,col)), shape=(len(matches), len(matches)))
 
 def get_payoff_matrix(matches, gamma=0.01):
+    """
+    optimized implementation of the payoff matrix computation
+    """
     func = delta_arr(gamma)
     row = []
     col = []
@@ -125,12 +136,18 @@ def get_payoff_matrix(matches, gamma=0.01):
     return mat+mat.T-scipy.sparse.diags(mat.diagonal(),dtype=int)
 
 def get_payoff_matrix2(matches, gamma=0.01):
+    """
+    implementation of the payoff matrix computation
+    """
     distances = scipy.spatial.distance.cdist(matches, matches, metric = delta(gamma))
     distances[distances<0.1] = 0
     return coo_matrix(distances)
 
 
 def iterate(payoff, kind='conv', conv=0, nb_iter=0):
+    """
+    compute iterative steps of the non cooperative game
+    """
     n = payoff.shape[0]
     x = 1/n * np.ones(n)
     finished = False
@@ -145,10 +162,6 @@ def iterate(payoff, kind='conv', conv=0, nb_iter=0):
         i += 1
     return x
 
-def find_transformation(x):
-    pass
-    
-    
 
 if __name__ == '__main__':
     data_path = '../data'
@@ -161,11 +174,11 @@ if __name__ == '__main__':
     if False:
 
         # Load cloud as a [N x 3] matrix
-        filename1 = 'keypoints_bildstein1_factor:0.2-q:0.95-radius:0.3-subs:decimation-t0:0.268.ply'
+        filename1 = 'keypoints_bunny-original_factor:0.5-geom:0-q:0.95-radius:0.026-subs:decimation-t0:0.021.ply'
         prefix1, name1, params1 = parse_filename(filename1)
         cov_filename1 = give_filename(name1, prefix='covariance', params=params1, extension='npy')
         
-        filename2 = 'keypoints_bildstein3_factor:0.2-q:0.95-radius:0.3-subs:decimation-t0:0.268.ply'
+        filename2 = 'keypoints_bunny-perturbed_factor:0.5-geom:0-q:0.95-radius:0.026-subs:decimation-t0:0.021.ply'
         prefix2, name2, params2 = parse_filename(filename2)
         cov_filename2 = give_filename(name2, prefix='covariance', params=params2, extension='npy')
         
@@ -185,30 +198,18 @@ if __name__ == '__main__':
         #query_points_indices2 = np.load(os.path.join(data_path, 'query_indices_{}.npy'.format(name2)))
 
         
-        indices1 = features.select_top_indices(cov1, q=0.7)
-        indices2 = features.select_top_indices(cov2, q=0.7)
-        interesting_points_indices1 = interesting_points_indices1[indices1]
-        interesting_points_indices2 = interesting_points_indices2[indices2]
-        cov1 = cov1[indices1]
-        cov2 = cov2[indices2]
+#        indices1 = features.select_top_indices(cov1, q=0.7)
+#        indices2 = features.select_top_indices(cov2, q=0.7)
+#        interesting_points_indices1 = interesting_points_indices1[indices1]
+#        interesting_points_indices2 = interesting_points_indices2[indices2]
+#        cov1 = cov1[indices1]
+#        cov2 = cov2[indices2]
         
-#        logdet1 = np.linalg.slogdet(cov1)[1]
-#        interesting_points1 = np.argpartition(-logdet1, 15)[:15]
-#        interesting_points_indices1 = interesting_points1
-#        #interesting_points_indices1 = query_points_indices1[interesting_points1]
-#        cov1 = cov1[interesting_points_indices1]
-#        
-#        logdet2 = np.linalg.slogdet(cov2)[1]
-#        interesting_points2 = np.argpartition(-logdet2, 15)[:15]
-#        interesting_points_indices2 = interesting_points2
-#        #interesting_points_indices2 = query_points_indices2[interesting_points2]
-#        cov2 = cov2[interesting_points_indices2]
         
-        #cov1 = cov1[interesting_points_indices1]
-        #cov2 = cov2[interesting_points_indices2]
+#        distances = get_distance_matrix(cov1 + np.tile((1e-5*np.identity(10))[None,:,:], [len(cov1),1,1]),
+#                                        cov2 + np.tile((1e-5*np.identity(10))[None,:,:], [len(cov2),1,1]))
         
-        distances = get_distance_matrix(cov1 + np.tile((1e-5*np.identity(10))[None,:,:], [len(cov1),1,1]),
-                                        cov2 + np.tile((1e-5*np.identity(10))[None,:,:], [len(cov2),1,1]))
+        distances = get_distance_matrix(cov1, cov2)
 
         ratio = 1.3
         matches = get_correspondences(distances, ratio)
@@ -229,20 +230,3 @@ if __name__ == '__main__':
         correspondences_filename = give_filename(name1+'-'+name2, prefix='corresp', params=params, extension='npy')
         np.save(os.path.join(saved_data_path, correspondences_filename), correspondences_indices)
         
-        
-        
-        
-        
-        
-        
-        
-#        filename = 'distances' + '_' + name1+'--'+name2 + '_' + s + '.npz'
-#        scipy.sparse.save_npz(filename, new_distances)
-#        
-#        s = dict_to_str(params1, key_sep='-', value_sep=':')+'--'+dict_to_str(params2, key_sep='-', value_sep=':')
-#        filename = 'distances' + '_' + name1+'--'+name2 + '_' + s + '.npy'
-#        np.save(os.path.join(saved_data_path, filename), distances)
-
-        #distances = scipy.spatial.distance.cdist(cov1[:15].reshape(-1,100), cov2[:20].reshape(-1,100))
-        
-        #distances = scipy.spatial.distance.cdist(cov1.reshape(-1,100), cov2.reshape(-1,100))

@@ -56,18 +56,27 @@ def save_dataset_ply(data, filename_rad, prefix='transformed'):
               ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue'])
 
 def normalize_intensities(intensities, low=-2048, high=2047):
+    """
+    apply linear transformation to intensities to make them fit in 0-255 range
+    """
     intensities = (intensities - low)/(high-low)*255
     return intensities
 
-def clean_dataset(filename_rad, max_rows=None):
+def clean_dataset(filename_rad, label=5, max_rows=None):
+    """
+    filter in only a given label
+    """
     data = load_dataset(filename_rad+'.txt', max_rows)
     labels = load_dataset(filename_rad+'.labels', max_rows)
     data = np.concatenate((data, labels[:,None]), axis=1)
-    data = data[data[:,-1]==5]
+    data = data[data[:,-1]==label]
     data = np.delete(data, -1, axis=1)
     save_dataset_ply(data, filename_rad)
     
 def select_points(filename_rad):
+    """
+    select points based on coordinates from ZOOM_COORDINATES
+    """
     cloud_ply = read_ply(os.path.join(PATH, 'transformed_' + filename_rad + '.ply'))
     
     for coord in ['x', 'y', 'z']:
@@ -107,21 +116,3 @@ if __name__ == '__main__':
                        filename_rad,
                        prefix='cutted')
         
-
-
-#filename_rad = 'bildstein_station1_xyz_intensity_rgb'
-#max_rows=None
-#
-#center = np.array([[19.823, 13.171, 5.221]])
-#data_min = np.array([[-104.7  ,  -133.527,   -17.109]])
-#data_max = np.array([[120.578,  112.858,   47.372]])
-#box_dim = np.array([[225.278, 246.385, 64.481]])
-#
-#coordinates_lim = np.array([[3.16, 4.73, 1.12],
-#                            [24.31, 51.87, -3.54],
-#                            [47.4, 63.9, -1.15],
-#                            [48.6, -27.3, 6.46]])
-#
-#data = load_dataset('bildstein_station1_xyz_intensity_rgb.txt', max_rows = None)
-#labels = load_labels('bildstein_station1_xyz_intensity_rgb.labels', max_rows = 100)
-    

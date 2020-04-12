@@ -11,7 +11,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from sklearn.neighbors import KDTree
 
-from utils.ply import write_ply, read_ply
+from utils.ply import write_ply, read_ply, check_with_colors_and_intensity
 from fileutils import dict_to_str, give_filename, parse_filename
 
 import os
@@ -191,26 +191,34 @@ if __name__ == '__main__':
     data_path = '../data'
     saved_data_path = '../saved_data'
     
-    if False:
-        filename1 = 'keypoints_bildstein1_factor:0.2-q:0.95-radius:0.3-subs:decimation-t0:0.268.ply'
+    if True:
+        filename1 = 'keypoints_bildstein1_factor:0.2-geom:0-q:0.98-radius:0.561-subs:decimation-t0:0.449.ply'
         prefix1, name1, params1 = parse_filename(filename1)
         cloud_ply1 = read_ply(os.path.join(saved_data_path, filename1))
         cloud_points1 = np.vstack((cloud_ply1['x'], cloud_ply1['y'], cloud_ply1['z'])).T
-        colors1 = np.vstack((cloud_ply1['red'], cloud_ply1['green'], cloud_ply1['blue'])).T
-        intensities1 = cloud_ply1['intensity']
+        colors1 = np.zeros((len(cloud_points1),3))
+        intensities1 = np.ones((len(cloud_points1),1))
+        with_colors1 = check_with_colors_and_intensity(cloud_ply1)
+        if with_colors1:
+            colors1 = np.vstack((cloud_ply1['red'], cloud_ply1['green'], cloud_ply1['blue'])).T
+            intensities1 = cloud_ply1['intensity']
         keypoints1 = cloud_ply1['keypoints']
         
-        filename2 = 'keypoints_bildstein3_factor:0.2-q:0.95-radius:0.3-subs:decimation-t0:0.268.ply'
+        filename2 = 'keypoints_bildstein3_factor:0.2-geom:0-q:0.98-radius:0.634-subs:decimation-t0:0.507.ply'
         prefix2, name2, params2 = parse_filename(filename2)
         cloud_ply2 = read_ply(os.path.join(saved_data_path, filename2))
         cloud_points2 = np.vstack((cloud_ply2['x'], cloud_ply2['y'], cloud_ply2['z'])).T
-        colors2 = np.vstack((cloud_ply2['red'], cloud_ply2['green'], cloud_ply2['blue'])).T
-        intensities2 = cloud_ply2['intensity']
+        colors2 = np.zeros((len(cloud_points2),3))
+        intensities2 = np.ones((len(cloud_points2),1))
+        with_colors2 = check_with_colors_and_intensity(cloud_ply2)
+        if with_colors2:
+            colors2 = np.vstack((cloud_ply2['red'], cloud_ply2['green'], cloud_ply2['blue'])).T
+            intensities2 = cloud_ply2['intensity']
         keypoints2 = cloud_ply2['keypoints']
         
         params = {k+'1':v for k,v in params1.items()}
         params.update({k+'2':v for k,v in params2.items()})
-        correspondences_filename = give_filename(name1+'-'+name2, prefix='corresp', params=params, extension='npy')
+        correspondences_filename = give_filename(name1+'-'+name2, prefix='corresp-ratio:1.3', params=params, extension='npy')
         correspondences_indices = np.load(os.path.join(saved_data_path, correspondences_filename)).astype('int')
         
         matched_points1 = np.zeros((len(cloud_points1),1))
@@ -218,7 +226,7 @@ if __name__ == '__main__':
         matched_points2 = np.zeros((len(cloud_points2),1))
         matched_points2[correspondences_indices[:,1]] = 1
         
-        max_iter = 100
+        max_iter = 10000
         RMS_threshold = 1e-5
         
         ref = cloud_points1[correspondences_indices[:,0]].T
@@ -230,14 +238,27 @@ if __name__ == '__main__':
         
         # Save cloud
         registered_filename = give_filename(name1+'-'+name2, prefix='registered2', params=params, extension='ply')
-        write_ply(os.path.join(saved_data_path, registered_filename),
-                  (new_cloud_points2, intensities2, colors2, keypoints2, matched_points2),
-                  ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue', 'keypoints', 'matchedpoints'])
+        if with_colors2:
+            write_ply(os.path.join(saved_data_path, registered_filename),
+                      (new_cloud_points2, intensities2, colors2, keypoints2, matched_points2),
+                      ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue', 'keypoints', 'matchedpoints'])
+        else:
+            write_ply(os.path.join(saved_data_path, registered_filename),
+                      (new_cloud_points2, keypoints2, matched_points2),
+                      ['x', 'y', 'z', 'keypoints', 'matchedpoints'])
         
         registered_filename = give_filename(name1+'-'+name2, prefix='registered1', params=params, extension='ply')
-        write_ply(os.path.join(saved_data_path, registered_filename),
+        if with_colors1:
+            write_ply(os.path.join(saved_data_path, registered_filename),
                   (cloud_points1, intensities1, colors1, keypoints1, matched_points1),
                   ['x', 'y', 'z', 'intensity', 'red', 'green', 'blue', 'keypoints', 'matchedpoints'])
+        else:
+            write_ply(os.path.join(saved_data_path, registered_filename),
+                  (cloud_points1, keypoints1, matched_points1),
+                  ['x', 'y', 'z', 'keypoints', 'matchedpoints'])
+        
+
+        
         
         # Compute RMS
         rms = np.sqrt(np.mean(np.linalg.norm(ref-new_cloud_points2[correspondences_indices[:,1]].T, axis=0)))

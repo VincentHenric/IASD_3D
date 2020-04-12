@@ -294,3 +294,6 @@ def describe_element(name, df):
             element.append('property ' + f + ' ' + df.columns.values[i])
 
     return element
+
+def check_with_colors_and_intensity(cloud_ply):
+    return all(x in cloud_ply.dtype.names for x in ['intensity', 'red', 'green', 'blue'])
